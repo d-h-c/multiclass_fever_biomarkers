@@ -2,7 +2,7 @@
 
 Dominic Habgood-Coote, Clare Wilson, Chisato Shimizu, Anouk M Barendregt, Ria Philipsen, Rachel Galassini, Irene Rivero Calle, Lesley Workman, Philipp Agyeman, Gerben Ferwerda, Suzanne T Anderson, Merlijn van den Berg, Marieke Emonts, Enitan D Carrol, Colin G Fink, Ronald de Groot, Martin L Hibberd, John Kanegaye, Mark P Nicol, Stéphane Paulus, Andrew J Pollard, Antonio Salas, Fatou Secka, Luregn J Schlapbach, Adriana H Tremoulet, Michael Walther, Werner Zenz, Michiel Van der Flier, Heather J Zar, Taco Kuijpers, Jane C Burns, Federico Martinón-Torres, Victoria J Wright, Lachlan JM Coin, Aubrey J Cunnington, Jethro A Herberg, Michael Levin*, Myrsini Kaforou*
 
-* authors contributed equally.
+\* authors contributed equally.
 Correspondence m.kaforou@imperial.ac.uk 
 
 ## Abstract
