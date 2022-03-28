@@ -1960,7 +1960,7 @@ plot(add =T,r_sp3, type  = "shape",col=add.alpha(es_pallette[4],0.5))
 plot(r, lty =1,add =T,col =es_pallette[4])
 external_auc_table[nrow(external_auc_table)+1,] <- c("TWOGENE-Bacterial-vs-Viral",r$auc,length(cases.b),r$ci[c(1,3)])
 title( main =list("Distinguishing bacterial from viral illness" ,cex = titlesize),line = 0.2,adj = 0)
-es_rocs[["herberg_BV"]] <- r_sp2
+es_rocs[["herberg_BV"]] <- r_sp3
 
 # viral vs all
 pretty_plot_area(cols =  c("white","grey90"),text_col = "grey30",margins = c(8, 8, 4, 1),
