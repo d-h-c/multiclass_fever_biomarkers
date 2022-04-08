@@ -2814,3 +2814,477 @@ prevalence_corrected_performance[c("EUR_EDprev",
 
 write.csv(prevalence_corrected_performance, file = "figures/prevalence_scenario_performance.csv")
 
+# DE broad category ####
+
+
+
+rnaseq_meta.loc <- as.data.frame(rnaseq_a_summary[names(rnaseq_broad_validation_pheno),])
+rnaseq_meta.loc[names(rnaseq_broad_validation_pheno),"broadgroup"] <- as.vector(rnaseq_broad_validation_pheno)
+rnaseq_meta.loc[,"age"] <- round(as.numeric(rnaseq_meta.loc[,"age"]),digits = 1)
+rnaseq_meta.loc[,"sex"] <- rnaseq_meta.loc[,"chromosomal_sex"]
+rnaseq_meta.loc[rnaseq_meta.loc[,"sex"] == "XXY","sex"] <- "XY"
+
+
+library(DESeq2)
+
+
+gene_counts.filt <- gene_count_matrix[,rownames(rnaseq_meta.loc)]
+leg <- rowSums(gene_counts.filt>5)
+gene_counts.filt <- gene_counts.filt[leg > 6,] # half smallest group
+
+# disease x vs all 
+dds_list <- list()
+for(disease in unique(rnaseq_meta.loc[,"broadgroup"])){
+  rnaseq_meta.loc[,"bg"] <- rnaseq_meta.loc[,"broadgroup"]
+  rnaseq_meta.loc[rnaseq_meta.loc[,"bg"] != disease,"bg"] <- "OD"
+  dds_list[[disease]] <- DESeqDataSetFromMatrix(gene_counts.filt , colData = rnaseq_meta.loc,
+                                                design = ~ age + sex + bg)  
+  dds_list[[disease]]$bg <- relevel(dds_list[[disease]]$bg, ref = "OD")
+}
+
+
+for(disease in names(dds_list)){
+  print(disease)
+  dds_list[[disease]] <- DESeq(dds_list[[disease]], parallel = T)
+}
+
+plot_volcano <- function(res.loc,geneid = F, main = ""){
+  pal <- RColorBrewer::brewer.pal(5,"Dark2")
+  res.loc <- res.loc[!is.na(res.loc[,"log2FoldChange"]) & !is.na(res.loc[,"padj"]),]
+  zerop <- rownames(res.loc)[res.loc[,"padj"] == 0]
+  res.loc[0 == res.loc[,"padj"],"padj"] <- min(res.loc[res.loc[,"padj"] > 0,"padj"])
+  xvals <- res.loc[,"log2FoldChange"]
+  yvals <- -log10(res.loc[,"padj"])
+  for( ybr in c(0.1,0.5,1,5,10,15,20,50,100,250,1000)){
+    if((max(yvals) - min(yvals) ) / ybr < 15){
+      break
+    }
+  }
+  pretty_plot_area(cols = c("white","grey90"),text_col = "grey30",
+                   ytick = c(min(yvals),max(yvals)+5,ybr),x_lab = "log2FoldChange",y_lab = "-log10(p(adjusted))",
+                   xtick = c(min(xvals)-0.5,max(xvals)+0.5,0.5), ybuffer = 0,main = main)
+  sig <- rownames(res.loc)[res.loc[, "padj"]< 0.01 & abs(res.loc[, "log2FoldChange"]) > 1.5]
+  sig <- sig[!is.na(sig)]
+  title(main = main)
+  nsig <- rownames(res.loc)[! rownames(res.loc) %in% sig]
+  points(res.loc[nsig,"log2FoldChange"] , -log10(res.loc[nsig,"padj"]) , pch = 16, col =  pal[4])
+  
+  points(res.loc[sig,"log2FoldChange"] , -log10(res.loc[sig,"padj"]) , pch = 16, col = pal[1])
+  if(geneid){
+    text(res.loc[sig,"log2FoldChange"] , -log10(res.loc[sig,"padj"]) , labels = sig, pos = 1, col =pal[1])
+  }else{
+    text(res.loc[sig,"log2FoldChange"] , -log10(res.loc[sig,"padj"]) , labels = genenames[sig,2], pos = 1, col = pal[1])
+    
+  }
+  
+}
+
+pdf("figures/volcano_plots.pdf" ,width = 14,height = 14)
+plot_volcano( results(dds_list$viral, name=  "bg_viral_vs_OD" ), main = "Viral vs other")
+plot_volcano( results(dds_list$bacterial, name=  "bg_bacterial_vs_OD" ), main = "Bacterial vs other")
+plot_volcano( results(dds_list$JIA, name=  "bg_JIA_vs_OD" ), main = "JIA vs other")
+plot_volcano( results(dds_list$KD, name=  "bg_KD_vs_OD" ), main = "KD vs other")
+plot_volcano( results(dds_list$malaria, name=  "bg_malaria_vs_OD" ), main = "Malaria vs other")
+plot_volcano( results(dds_list$TB, name=  "bg_TB_vs_OD" ), main = "TB vs other")
+dev.off()
+
+
+lfcThreshold <- 1
+baseMeanThreshold <- 10
+significant_genes <- list()
+res <- results(dds_list$viral, name=  "bg_viral_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_viral_other.csv")
+write.csv(res[1:50,], file = "figures/DE_viral_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_viral_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_viral_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_viral_down_1.5_0.01.txt")
+significant_genes[["viral"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["viral_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["viral_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold ,])
+
+res <- results(dds_list$bacterial, name=  "bg_bacterial_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_bacterial_other.csv")
+write.csv(res[1:50,], file = "figures/DE_bacterial_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_bacterial_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_bacterial_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_bacterial_down_1.5_0.01.txt")
+significant_genes[["bacterial"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["bacterial_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["bacterial_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+
+res <- results(dds_list$JIA, name=  "bg_JIA_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_JIA_other.csv")
+write.csv(res[1:50,], file = "figures/DE_JIA_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_JIA_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_JIA_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_JIA_down_1.5_0.01.txt")
+significant_genes[["JIA"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["JIA_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["JIA_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+
+res <- results(dds_list$KD, name=  "bg_KD_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_KD_other.csv")
+write.csv(res[1:50,], file = "figures/DE_KD_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_KD_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_KD_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_KD_down_1.5_0.01.txt")
+significant_genes[["KD"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["KD_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["KD_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+
+
+res <- results(dds_list$malaria, name=  "bg_malaria_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_malaria_other.csv")
+write.csv(res[1:50,], file = "figures/DE_malaria_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_malaria_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_malaria_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_malaria_down_1.5_0.01.txt")
+significant_genes[["malaria"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["malaria_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["malaria_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+
+
+
+res <- results(dds_list$TB, name=  "bg_TB_vs_OD" )
+res <- res[order(res$padj),]
+res[,"Symbol"] <- genenames[rownames(res),2]
+write.csv(res, file = "figures/DE_TB_other.csv")
+write.csv(res[1:50,], file = "figures/DE_TB_other_top50.csv")
+res <- res[!is.na(res[,"padj"]),]
+write(paste(rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_TB_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_TB_up_1.5_0.01.txt")
+write(paste(rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,]), collapse = " "),
+      file = "figures/DE_TB_down_1.5_0.01.txt")
+significant_genes[["TB"]] <- rownames(res[abs(res[,"log2FoldChange"]) > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["TB_up"]] <- rownames(res[res[,"log2FoldChange"] > lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+significant_genes[["TB_down"]] <- rownames(res[res[,"log2FoldChange"] < -lfcThreshold & res[,"padj"] < 0.01 & res[,"baseMean"] > baseMeanThreshold,])
+
+save(significant_genes, file = "figures/significant_genes.RData")
+
+
+if(F){ # run in version 4 R 
+  names(significant_genes)
+  library("gprofiler2")
+  profiler_res <- list()
+  for(i in names(significant_genes)){
+    print(i)
+    profiler_res[[i]] <-  gost(query = significant_genes[[i]],organism = "hsapiens")
+  }
+  save(profiler_res, file = "gprofiler2_res.RData", version = "2")
+}
+
+load("figures/gprofiler2_res.RData")
+
+pal <- add.alpha(c(RColorBrewer::brewer.pal(8, "Dark2"),"black","grey","lightgrey"),0.7)
+names(pal) <- sources
+
+pretty_plot_area <- function(x_lab ="" , y_lab ="" ,main = "",
+                             ytick = c(0,2,0.1) ,ytickn = NULL,
+                             xtick= c(0,1,0.1) , xtickn = NULL,
+                             show_x_tick = T,show_y_tick = T,
+                             show_x = T,show_y = T,background = "white",
+                             cols = c("lightgray","white"),text_col = "grey20",
+                             xbuffer = 0,ybuffer = 0,margins = c(8, 8, 2, 1),
+                             add_rect = T,plot_outside_margin = F, axcex = 1,
+                             absolute_x = F,absolute_y = F ){
+  par(xpd=F)
+  xtick2 <- NULL
+  ytick2 <- NULL
+  if(!is.null(ytickn))  ytick2 <- seq(ytick[1],ytick[2],by = ytickn )
+  if(!is.null(xtickn))  xtick2 <- seq(xtick[1],xtick[2],by = xtickn )
+  
+  # ytick <- seq(ytick[1],ytick[2],by = ytick[3])
+  # xtick <- seq(xtick[1],xtick[2],by = xtick[3])
+  ytick <- seq(floor(ytick[1] / ytick[3]) * ytick[3],ceiling(ytick[2] / ytick[3]) * ytick[3],by = ytick[3])
+  xtick <- seq(floor(xtick[1] / xtick[3]) * xtick[3],ceiling(xtick[2] / xtick[3]) * xtick[3],by = xtick[3])
+  
+  par(mar = margins, # Dist' from plot to side of page
+      mgp = c(2, 0.4, 0), # Dist' plot to label
+      las = 1, # Rotate y-axis text
+      tck = -.01, # Reduce tick length
+      xaxs = "i", yaxs = "i",# Remove plot padding
+      bg = background)
+  
+  # if need to reverse the axes
+  if(xtick[1]>xtick[2]){
+    xlims <- c(max(xtick)+xbuffer,min(xtick)-xbuffer)
+  }else{
+    xlims <- c(min(xtick)-xbuffer,max(xtick)+xbuffer)
+  }
+  if(ytick[1]>ytick[2]){
+    ylims <- c(max(ytick)+ybuffer,min(ytick)-ybuffer)
+  }else{
+    ylims <- c(min(ytick)-ybuffer,max(ytick)+ybuffer)
+  }
+  
+  plot(0,0,cex = 0 , ylim=ylims,
+       xlim= xlims,axes =F,xlab = "" ,ylab = "")
+  
+  title(main =main , xlab = x_lab ,ylab = y_lab,line = 4)
+  if(show_x){
+    if(absolute_x){
+      mtext(side = 1, text = abs(xtick), at = xtick, 
+            col = text_col, line = 1, cex = 1.2,las =1) 
+    }else{
+      mtext(side = 1, text = xtick, at = xtick, 
+            col = text_col, line = 1, cex = 1.2,las =1)
+    }
+  }  
+  if(show_y){
+    if(absolute_y){
+      mtext(side = 2, text = abs(round(ytick, digits = 10)), at = ytick, 
+            col = text_col, line = 1, cex = 1.2,las =2)
+    }else{
+      mtext(side = 2, text = round(ytick, digits = 10), at = ytick, 
+            col = text_col, line = 1, cex = 1.2,las =2)  
+    }
+  } 
+  
+  if(add_rect){
+    rect(xleft = min(xtick)-100,xright = max(xtick)+100 ,
+         ybottom =min(ytick)-100 , ytop = max(ytick)+100,col = cols[1],border = F)
+  }
+  if(show_y_tick)       abline( h = ytick,col =cols[2],lwd =3)
+  if(show_x_tick)       abline( v = xtick,col =cols[2],lwd =3)
+  if(!is.null(ytick2))  abline( h = ytick2,col =cols[2],lwd =1)
+  if(!is.null(xtick2))  abline( v = xtick2,col =cols[2],lwd =1)
+  par(xpd=plot_outside_margin)
+}
+
+
+
+
+
+
+enrichment_plot <- function(src, ylim = c(-20,20), ytextbuffer =0,
+                            textjump = 0.4,textsize = 0.6, yjump = 5,rotate = 0){
+  pretty_plot_area(ytick = c(ylim,yjump),ybuffer = 5,cols = c("white","lightgray"),margins = rep(6,4),
+                   xtick = c(0.8,7,0.2),show_x_tick = F,show_y_tick = T,absolute_y = T,
+                   show_x = F,show_y = T,plot_outside_margin = T,y_lab = "-log10(padj)", main = src,axcex = 2)
+  for(i in 1:6){
+    disease <- c("viral","bacterial","JIA","KD","TB","malaria")[i]
+    rect(xleft = i-0.15,xright = i-0.05, ytop = 2, ybottom = -2, col = "white", border = NA)
+    text(i-0.1,0, colour_table[disease,"name"], col = colour_table[disease,"col"],srt = 90,cex = 2)
+    
+    res <- profiler_res[[paste0(disease,"_up")]]$result
+    res <- res[res[,"source"] %in% c(src),]
+    if(!is.null(res)){
+      if(nrow(res) > 0){
+        text_lim <- 20
+        newypos <- rev(seq(min(-log10(res[,"p_value"])), 2000, by = textjump)[1:nrow(res)])
+        newypos <- newypos + ytextbuffer
+        if(length(newypos) > 20) newypos <- newypos - newypos[text_lim] + 3
+        for( j in 1:text_lim){
+          points(c(i,i+0.06),c(-log10(res[j,"p_value"]),newypos[j]), type = "l", col = "lightgrey")
+          terms <- res[j,"term_name"]
+          terms <- gsub("biological process involved in ","",terms)
+          terms <- gsub("regulation","reg",terms)
+          terms <- gsub("response","resp",terms)
+          if(!is.na(terms)){
+            terms <- firstup(terms)
+            str_len <- stri_length(terms)
+            if(str_len > 50){
+              text(i + 0.05, newypos[j]
+                   ,terms ,adj = 1,pos = 4,cex = textsize * 0.8,srt = rotate)
+              
+              
+            }else{
+              text(i + 0.05, newypos[j]
+                   ,terms ,adj = 1,pos = 4,cex = textsize,srt = rotate)
+            }
+          }
+        }
+        points(rep(i,nrow(res)),-log10(res[,"p_value"]), col = "red" 
+               , pch = 16, cex = 1.5)
+      }
+    }
+    res <- profiler_res[[paste0(disease,"_down")]]$result
+    res <- res[res[,"source"] == c(src),]
+    if(!is.null(res)){
+      if(nrow(res) > 0){
+        text_lim <- 20
+        newypos <- rev(seq(max(log10(res[,"p_value"])), -2000, by = -1 * textjump)[1:nrow(res)])
+        newypos <- newypos - ytextbuffer
+        if(length(newypos) > 20) newypos <- newypos - newypos[text_lim] - 3
+        for( j in 1:text_lim){
+          points(c(i,i+0.06),c(log10(res[j,"p_value"]),newypos[j]), type = "l", col = "lightgrey")
+          terms <- res[j,"term_name"]
+          terms <- gsub("biological process involved in ","",terms)
+          terms <- gsub("regulation","reg",terms)
+          terms <- gsub("response","resp",terms)
+          if(!is.na(terms)){
+            terms <- firstup(terms)
+            str_len <- stri_length(terms)
+            if(str_len > 50){
+              text(i + 0.05, newypos[j]
+                   , terms,adj = 1,pos = 4,cex = textsize*0.8,srt = rotate)  
+            }else{
+              text(i + 0.05, newypos[j]
+                   , terms,adj = 1,pos = 4,cex = textsize,srt = rotate)
+            }
+          }
+        }
+        points(rep(i,nrow(res)),log10(res[,"p_value"])
+               , pch = 16, cex = 1.5, col ="blue")
+      }
+    }
+  }
+}
+
+
+firstup <- function(x) {
+  substr(x, 1, 1) <- toupper(substr(x, 1, 1))
+  x
+}
+
+library(stringi)
+
+# save as tables 
+
+for(i in names(profiler_res)){
+  res <- profiler_res[[i]]$result
+  for(j in 1:nrow(res)) res[j,"Parents"] <- paste0(res[j,"parents"][[1]],collapse = "_")
+  res <- res[,c(1:13,15)]
+  write.csv(res, file = paste0("figures/broadgroup_DE/gprofiler_",i,".csv"))
+}
+
+
+
+
+sources <- c()
+for(i in names(profiler_res)){
+  sources <- unique(c(sources,profiler_res[[i]]$result[,"source"]))
+}
+
+
+pdf("figures/enrichment.pdf" ,width = 22,height = 10)
+for(i in sources){
+  ymaxs <- 0
+  ymins <- 0
+  for(j in names(profiler_res)[grepl("down",names(profiler_res))]){
+    res <- profiler_res[[j]]$result
+    res <- res[res[,"source"] == i,]
+    ymins <- min(c(ymins , log10(res[,"p_value"])))
+  }
+  for(j in names(profiler_res)[grepl("up",names(profiler_res))]){
+    res <- profiler_res[[j]]$result
+    res <- res[res[,"source"] == i,]
+    ymaxs <- max(c(ymaxs , -log10(res[,"p_value"])))
+  }
+  
+  if(i == "TF") ymaxs <- 10
+  
+  if(i %in% c("GO:MF","KEGG")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 0.7)
+  }else if(i %in% c("GO:CC","REAC")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 2,yjump = 10,textsize = 0.5)
+  }else if(i %in% c("GO:BP")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 2.2,yjump = 10)
+  }else{
+    enrichment_plot(i,ylim = c(ymins,ymaxs))  
+  }
+  
+}
+dev.off()
+
+
+
+pdf("figures/enrichment.rotated.pdf" ,width = 20,height = 10)
+for(i in sources){
+  ymaxs <- 0
+  ymins <- 0
+  for(j in c("viral","bacterial","JIA","KD","TB","malaria")){
+    res <- profiler_res[[j]]$result
+    res <- res[res[,"source"] == i,]
+    ymaxs <- max(c(ymaxs , -log10(res[,"p_value"])))
+    ymins <- min(c(ymins , log10(res[,"p_value"])))
+  }
+  if(i == "TF") ymaxs <- 10
+  
+  if(i %in% c("GO:MF","KEGG")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 0.9,textsize = 0.8, rotate = 45)
+  }else if(i %in% c("REAC")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 2,textsize = 0.8, rotate = 45)
+  }else if(i %in% c("GO:CC")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 3,textsize = 0.9,yjump = 10,
+                    rotate = 45)
+  }else if(i %in% c("GO:BP")){
+    enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 3.5,textsize = 0.85,yjump = 10, 
+                    rotate = 45)
+  }else{
+    enrichment_plot(i,ylim = c(ymins,ymaxs),textsize = 0.8)  
+  }
+  
+}
+dev.off()
+
+
+
+
+pdf("~/Dropbox/my_files/tmp/enrichment.GO:BP.pdf" ,width = 35,height = 10)
+i <- "GO:BP"
+ymaxs <- 0
+ymins <- 0
+for(j in names(profiler_res)[grepl("down",names(profiler_res))]){
+  res <- profiler_res[[j]]$result
+  res <- res[res[,"source"] == i,]
+  ymins <- min(c(ymins , log10(res[,"p_value"])))
+}
+for(j in names(profiler_res)[grepl("up",names(profiler_res))]){
+  res <- profiler_res[[j]]$result
+  res <- res[res[,"source"] == i,]
+  ymaxs <- max(c(ymaxs , -log10(res[,"p_value"])))
+}
+enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 3,textsize = 1.4)
+dev.off()
+
+
+pdf("~/Dropbox/my_files/tmp/enrichment.reac.pdf" ,width = 35,height = 10)
+i <- "REAC"
+ymaxs <- 0
+ymins <- 0
+for(j in names(profiler_res)[grepl("down",names(profiler_res))]){
+  res <- profiler_res[[j]]$result
+  res <- res[res[,"source"] == i,]
+  ymins <- min(c(ymins , log10(res[,"p_value"])))
+}
+for(j in names(profiler_res)[grepl("up",names(profiler_res))]){
+  res <- profiler_res[[j]]$result
+  res <- res[res[,"source"] == i,]
+  ymaxs <- max(c(ymaxs , -log10(res[,"p_value"])))
+}
+enrichment_plot(i,ylim = c(ymins,ymaxs) ,textjump = 2.5,yjump = 10,textsize = 1.2, ytextbuffer = 5)
+
+dev.off()
